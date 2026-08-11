@@ -176,20 +176,24 @@ class NotableNavigator(
     }
 
     /**
-     * Resolves the pageId from the backStackEntry (prioritizing saved state),
-     * synchronizes the internal state, and ensures the SavedStateHandle is updated.
+     * The page an editor session starts on. Saved state wins over the nav argument, so a process
+     * death resumes where you were rather than where you entered.
+     *
+     * **Read-only, and read once per back-stack entry.** The editor is *seeded* from the route and
+     * afterwards reports to it through [onPageChange] — the traffic goes one way.
+     *
+     * This used to read and write in the same call, on every recomposition, which made the route a
+     * second store for the page the editor was on: state written through onPageChange came back as
+     * a changed seed and re-ran the editor's load. Harmless while only one thing wrote the page,
+     * and a trap for anything else that wants to.
      */
-    fun resolveAndSyncPageId(backStackEntry: NavBackStackEntry): String {
+    fun initialPageId(backStackEntry: NavBackStackEntry): String =
+        backStackEntry.savedStateHandle.get<String>(EditorDestination.PAGE_ID_ARG)
+            ?: backStackEntry.arguments?.getString(EditorDestination.PAGE_ID_ARG)!!
 
-        // Priority: SavedStateHandle (for process death/recomposition) > Nav Argument
-        val newCurrentPageId =
-            backStackEntry.savedStateHandle.get<String>(EditorDestination.PAGE_ID_ARG)
-                ?: backStackEntry.arguments?.getString(EditorDestination.PAGE_ID_ARG)!!
-
-        // Sync state
-        currentPageId = newCurrentPageId
-        backStackEntry.savedStateHandle[EditorDestination.PAGE_ID_ARG] = currentPageId
-        return newCurrentPageId
+    /** Record which page an opening editor is on, for app-level code with no editor in hand. */
+    fun onEditorOpened(pageId: String) {
+        currentPageId = pageId
     }
 
     fun cleanCurrentPageId() {

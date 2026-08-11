@@ -212,7 +212,7 @@ class PageView(
             // Scroll is now held by the viewport rather than read through PageDataManager on every
             // access, so a page switch has to adopt the persisted position explicitly.
             viewport.reloadFromPersistence()
-            pageDataManager.getCachedBitmap(currentPageId)?.let { cached ->
+            pageDataManager.getCachedBitmap(currentPageId, viewWidth, viewHeight)?.let { cached ->
                 log.i("PageView: using cached bitmap")
                 renderer.adopt(cached)
             } ?: run {
@@ -260,12 +260,12 @@ class PageView(
             // Scroll is now held by the viewport rather than read through PageDataManager on every
             // access, so a page switch has to adopt the persisted position explicitly.
             viewport.reloadFromPersistence()
-            pageDataManager.getCachedBitmap(newPageId)?.let { cached ->
+            pageDataManager.getCachedBitmap(newPageId, viewWidth, viewHeight)?.let { cached ->
                 log.i("PageView: using cached bitmap")
+                // No size fix-up needed: the cache only returns a bitmap rendered at this view's
+                // dimensions. It used to hand back any size and leave this to recreate the canvas,
+                // which came up blank because the redraw was issued before the strokes had loaded.
                 renderer.adopt(cached)
-                // Check if we have correct size of canvas
-                if (windowedCanvas.width != viewWidth || windowedCanvas.height != viewHeight)
-                    updateCanvasDimensions()
             } ?: run {
                 log.i("PageView.changePage: creating new bitmap")
                 recreateCanvas()

@@ -890,8 +890,20 @@ class PageDataManager @Inject constructor(
         log.i("Refresh current page, background: ${pageFromDb?.background}")
     }
 
-    fun getCachedBitmap(pageId: String): Bitmap? = synchronized(lock) {
-        entries[pageId]?.bitmap?.get()?.takeIf { !it.isRecycled && it.isMutable }
+    /**
+     * A cached window bitmap for [pageId], but only if it was rendered at exactly [width]×[height].
+     *
+     * The size is part of the identity of a rendered page. Handing back a mismatched bitmap left
+     * the view with a canvas of the wrong size, which the caller then had to detect and recreate —
+     * and the recreated canvas is blank, redrawn from strokes that have not finished loading.
+     *
+     * A mismatch is a miss, so the caller renders one and caches it under the same key. The sizes
+     * in play are few and stable, so this does not thrash.
+     */
+    fun getCachedBitmap(pageId: String, width: Int, height: Int): Bitmap? = synchronized(lock) {
+        entries[pageId]?.bitmap?.get()
+            ?.takeIf { !it.isRecycled && it.isMutable }
+            ?.takeIf { it.width == width && it.height == height }
     }
 
     fun cacheBitmap(pageId: String, bitmap: Bitmap) = synchronized(lock) {

@@ -74,8 +74,11 @@ fun EditorView(
 
     // Single point of entry for loading book data based on the pageId from Navigation
     // Should not be used for regular page switching
-    LaunchedEffect(initialPageId) {
-        log.v("EditorView: pageId changed to $initialPageId, loading data")
+    // Seeds the editor from the route, once per session. Keyed on Unit rather than on
+    // initialPageId: the route is an input at the start and an output thereafter, and re-running
+    // this on every page change reloaded state the editor had just set for itself.
+    LaunchedEffect(Unit) {
+        log.v("EditorView: seeding from route, pageId=$initialPageId")
         viewModel.loadToolbarState(bookId, initialPageId)
     }
 

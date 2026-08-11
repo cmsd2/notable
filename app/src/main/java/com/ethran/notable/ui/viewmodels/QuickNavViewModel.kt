@@ -21,6 +21,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 
+/**
+ * A notebook's pages, positioned for scrubbing. Only ever built for a notebook worth scrubbing —
+ * [MIN_SCRUBBABLE_PAGES] or more — so its existence is the answer to "is there a scrubber?".
+ */
+data class ScrubberState(
+    val pageIds: List<String>,
+    /** Zero-based position of the page in view. */
+    val index: Int,
+    /** Positions of favourited pages, for the scrubber's tick marks. */
+    val favouriteIndexes: List<Int> = emptyList(),
+) {
+    val count: Int get() = pageIds.size
+
+    fun pageAt(index: Int): String? = pageIds.getOrNull(index)
+}
+
+/** Below this a scrubber has nothing to move between. */
+private const val MIN_SCRUBBABLE_PAGES = 2
+
 data class QuickNavUiState(
     val isLoading: Boolean = true,
     val currentPageId: String? = null,
@@ -30,11 +49,16 @@ data class QuickNavUiState(
     val isCurrentPageFavorite: Boolean = false,
     val favoritePages: List<Page> = emptyList(),
 
-    // Scrubber specific state
-    val bookPageCount: Int = 0,
-    val currentBookIndex: Int = 0,
-    val favoriteIndexesInBook: List<Int> = emptyList(),
-    val bookPageIds: List<String> = emptyList()
+    /**
+     * The scrubber over the current notebook, or null when there is nothing to scrub.
+     *
+     * One nullable value rather than four correlated fields. As separate fields they could only be
+     * *overwritten*, never cleared — [loadBookData] writes them only for a notebook of two or more
+     * pages, so opening QuickNav on a shorter notebook, or on a quick page with no notebook at all,
+     * left the previous notebook's values in place and the scrubber read e.g. "0/3". A page count
+     * with no book behind it is now unrepresentable.
+     */
+    val scrubber: ScrubberState? = null
 )
 
 
@@ -56,7 +80,8 @@ class QuickNavViewModel(
     fun loadPageData(currentPageId: String?) {
         if (currentPageId == null) return
 
-        _uiState.update { it.copy(isLoading = true, currentPageId = currentPageId) }
+        // Cleared, not left to be overwritten: the next page may have no scrubber at all.
+        _uiState.update { it.copy(isLoading = true, currentPageId = currentPageId, scrubber = null) }
 
         viewModelScope.launch(Dispatchers.IO) {
             val page = runCatching { pageRepository.getById(currentPageId) }.getOrNull()
@@ -89,7 +114,7 @@ class QuickNavViewModel(
         bookId: String, currentPageId: String, favorites: List<String>
     ) {
         val book = bookRepository.getById(bookId)
-        if (book != null && book.pageIds.size >= 2) {
+        if (book != null && book.pageIds.size >= MIN_SCRUBBABLE_PAGES) {
             val currentIdx = appRepository.getPageNumber(bookId, currentPageId)
             val favIndexes = book.pageIds.mapIndexedNotNull { idx, id ->
                 if (favorites.contains(id)) idx else null
@@ -97,10 +122,11 @@ class QuickNavViewModel(
 
             _uiState.update { state ->
                 state.copy(
-                    bookPageCount = book.pageIds.size,
-                    currentBookIndex = currentIdx,
-                    favoriteIndexesInBook = favIndexes,
-                    bookPageIds = book.pageIds
+                    scrubber = ScrubberState(
+                        pageIds = book.pageIds,
+                        index = currentIdx,
+                        favouriteIndexes = favIndexes,
+                    )
                 )
             }
         }
@@ -144,17 +170,12 @@ class QuickNavViewModel(
     }
 
     fun onScrubPreview(index: Int) {
-        val pageIds = _uiState.value.bookPageIds
-        viewModelScope.launch {
-            if (index in pageIds.indices) {
-                CanvasEventBus.active.previewPage.tryEmit(pageIds[index])
-            }
-        }
+        val pageId = _uiState.value.scrubber?.pageAt(index) ?: return
+        viewModelScope.launch { CanvasEventBus.active.previewPage.tryEmit(pageId) }
     }
 
     fun onScrubEnd(index: Int) {
-        val pageIds = _uiState.value.bookPageIds
-        val targetPageId = pageIds.getOrNull(index) ?: return
+        val targetPageId = _uiState.value.scrubber?.pageAt(index) ?: return
 
         viewModelScope.launch {
             log.v("onScrubEnd: $index")
@@ -188,8 +209,7 @@ class QuickNavViewModel(
     }
 
     fun generateThumbnailsForCurrentBook() {
-        val pageIds = _uiState.value.bookPageIds
-        if (pageIds.isEmpty()) return
+        val pageIds = _uiState.value.scrubber?.pageIds ?: return
         thumbnailBackfillQueue.enqueue(pageIds)
     }
 }

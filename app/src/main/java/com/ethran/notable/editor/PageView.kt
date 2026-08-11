@@ -27,6 +27,7 @@ import com.ethran.notable.data.db.Stroke
 import com.ethran.notable.data.model.BackgroundType
 import com.ethran.notable.data.model.SimplePointF
 import com.ethran.notable.editor.canvas.CanvasEventBus
+import com.ethran.notable.editor.canvas.ViewEventBus
 import com.ethran.notable.editor.canvas.CanvasEventBus.drawingInProgress
 import com.ethran.notable.editor.canvas.CanvasEventBus.waitForDrawing
 import com.ethran.notable.editor.drawing.PageRenderer
@@ -88,6 +89,15 @@ class PageView(
     private val logCache = ShipBook.getLogger("PageViewCache")
 
     private var loadingJob: Job? = null
+
+    /**
+     * Signals scoped to this view — redraws, reloads, history commits, page changes.
+     *
+     * Previously these lived on the global [CanvasEventBus], so a second editor view would have
+     * reacted to every signal meant for the first. Code holding a page emits here; code that has
+     * no view in hand addresses [CanvasEventBus.active].
+     */
+    val events = ViewEventBus()
 
     // Owns the window buffer: the screen-sized bitmap, the canvas wrapping it, and the spare
     // buffer reused when scrolling. PageView still decides *what* to draw; PageRenderer owns
@@ -186,6 +196,10 @@ class PageView(
 
 
     init {
+        // App-level emitters (navigator, quick-nav, settings dialogs) have no view in hand and
+        // mean "the editor on screen", which with one editor is whichever PageView exists.
+        CanvasEventBus.active = events
+
         coroutineScope.launch(Dispatchers.IO) {
             // set page, and retrieve page data from db
             // setPage tells the manager which page is in front, for prefetch and eviction.
@@ -316,7 +330,7 @@ class PageView(
                 //  without seeing strokes, I have no idea why.
                 coroutineScope.launch(Dispatchers.Main) {
 //                    delay(100)
-                    CanvasEventBus.forceUpdate.emit(null)
+                    events.forceUpdate.emit(null)
                 }
 //                sleep(5000)
 
@@ -564,7 +578,7 @@ class PageView(
         scroll =
             Offset((scroll.x + delta.x).coerceAtLeast(0f), (scroll.y + delta.y).coerceAtLeast(0f))
 
-        CanvasEventBus.forceUpdate.emit(null)
+        events.forceUpdate.emit(null)
     }
 
 
@@ -860,7 +874,7 @@ class PageView(
         // TODO: it might be worth to do it
         //  by redrawing only part of the screen, like in scroll and zoom.
         coroutineScope.launch {
-            CanvasEventBus.forceUpdate.emit(null)
+            events.forceUpdate.emit(null)
         }
 //        persistBitmapDebounced()
     }

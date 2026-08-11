@@ -706,9 +706,18 @@ class EditorViewModel @Inject constructor(
     private suspend fun updateOpenedPage(newPageId: String) {
         log.v("updateOpenedPage: $newPageId")
         Log.d("EditorView", "Update open page to $newPageId")
-        if (bookId != null) {
-            appRepository.bookRepository.setOpenPageId(bookId!!, newPageId)
-        }
+
+        // Record where we left off in the notebook the page actually belongs to.
+        //
+        // This used to write against `bookId`, which is fixed when the editor is opened from its
+        // route. Page changes arrive through CanvasEventBus.changePage and carry only a page id,
+        // with nothing checking that it belongs to that notebook — so a page from elsewhere would
+        // be recorded as this notebook's open page, and the notebook would later reopen on a page
+        // that is not in it.
+        val notebookId = runCatching { appRepository.pageRepository.getById(newPageId)?.notebookId }
+            .onFailure { log.w("Could not resolve the notebook for $newPageId", it) }
+            .getOrNull()
+        notebookId?.let { appRepository.bookRepository.setOpenPageId(it, newPageId) }
         if (newPageId != currentPageId) {
             // The View's LaunchedEffect will handle the full load once navigation syncs.
             Log.d("EditorView", "Page changed")
